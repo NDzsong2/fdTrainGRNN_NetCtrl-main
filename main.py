@@ -6,12 +6,8 @@ import tensorflow as tf
 from tensorflow.keras.optimizers import Adam, SGD
 from gnn_models.gcnns import gcnn_c, gcnn_local_d, gcnn_share_d
 from gnn_models.grnns import grnn_d
-# import data_generation as dg
-# random_x0, get_trajectory
 from env.training_env import *
-# from env.training_env import generate_graph, generate_dynamics, consensus_matrix
 from training_utils import get_weights, grnn_d_training, gcnn_d_training, grnn_d_testing
-# minibatch_gnn, minibatch_gnn_test, convert_sparse_matrix_to_sparse_tensor, 
 from optimizers import D_SGD
 
 
