@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 import numpy as np
 import pandas as pd
@@ -11,7 +12,7 @@ from training_utils import get_weights, grnn_d_training, gcnn_d_training, grnn_d
 from optimizers import D_SGD
 
 
-from results_plot import plot_training_results
+from results_plot import plot_training_testing_results
 
 
 np.random.seed(42)
@@ -43,9 +44,9 @@ def main(args):
     num_topologies = 1   # Total length of the system evolution
     num_controllers = 1
     log_interval = 10
-    num_epoch = 200    # Length of epochs
+    num_epoch = 101    # Length of epochs
     lr = 0.001   # Learning rate
-     
+    
     x0_mean = 2 
     x0_std = 1
 
@@ -62,21 +63,23 @@ def main(args):
     #########################################################################################################
     # This is the main part (custom training loop) for the distributed training of the GCNN model 
     #########################################################################################################
-    start_time = time.time()
+    
 
     ### Create some containers to store our data 
-    num_log_points = int(num_epoch / log_interval)
-    rel_costs_table = tf.zeros((num_topologies, num_controllers, num_log_points))    # Construct a torch.Tensor (50,5,75), which is a multi-dimensional matrix containing elements of a single data type.
-    autonomous_costs = tf.zeros(num_topologies)    # 50
-    num_sparse_edges = tf.zeros(num_topologies)    # 50
-    num_env_edges = tf.zeros(num_topologies)       # Each element count the number of the edges according to the non-zero elements for the current topology S. Here, it is 50.
-                                                        # num_topologies - Number of the topologies. This is the same as the time stamps. here it is 50. 
-    
+    # num_log_points = int(num_epoch / log_interval)
+    # rel_costs_table = tf.zeros((num_topologies, num_controllers, num_log_points))    # Construct a torch.Tensor (50,5,75), which is a multi-dimensional matrix containing elements of a single data type.
+    # autonomous_costs = tf.zeros(num_topologies)    # 50
+    # num_sparse_edges = tf.zeros(num_topologies)    # 50
+    # num_env_edges = tf.zeros(num_topologies)       # Each element count the number of the edges according to the non-zero elements for the current topology S. Here, it is 50.
+    #                                                     # num_topologies - Number of the topologies. This is the same as the time stamps. here it is 50. 
+    training_data = []
+    testing_data = []
     train_x0s = [] # Write down the train x0s to reuse for training other types of models
     training_loss = np.zeros((num_epoch, num_nodes))
     testing_loss = np.zeros((num_epoch, num_nodes))
-    results = pd.DataFrame([], columns=['epoch', 'training_loss', 'testing_loss'])
-    # results = pd.DataFrame([], columns=['epoch', 'training_loss'])
+    training_results = pd.DataFrame([], columns=['epoch']+[f'training_loss{i+1}' for i in range(num_nodes)])
+    testing_results = pd.DataFrame([], columns=['epoch']+[f'testing_loss{i+1}' for i in range(num_nodes)])
+    
     
     # with tf.device(device):
     for ith_topology in range(num_topologies):
@@ -101,6 +104,8 @@ def main(args):
         optimizer = D_SGD(alpha=lr, beta=0.001)
         # adj_sp = convert_sparse_matrix_to_sparse_tensor(adj)
         
+        start_time = time.time()
+
         # Now, start our training process!
         for epoch in range(num_epoch):
             ### Step 2: generate (random) initial state datasets (initial states X^0 = X(t)). Here, we create a batch of states for each individual node, each is with the shape (batch_size, num_nodes, 1, p)
@@ -176,24 +181,39 @@ def main(args):
             print(", ".join([f"Training Loss{i+1}: {loss_tr:.5f}" for i, loss_tr in enumerate(training_loss[epoch])])) 
             print(f"           " + ", ".join([f"Testing Loss{i+1}: {loss_te:.5f}" for i, loss_te in enumerate(testing_loss[epoch])]))
             
-
-
-
+            epoch_row_training = {'epoch': epoch}
+            epoch_row_testing = {'epoch': epoch}
             
-    #     epoch_res = pd.DataFrame({
-    #         'epoch': epoch,
-    #         'train_loss': loss_tr[epoch]
-    #         # 'test_loss' : loss_te[epoch],
-    #     }, index=[epoch])
-    #     res = pd.concat([res, epoch_res], ignore_index=True)    # pd.concat(): concatenates two or more DataFrames along a particular axis (default is along the rows, i.e., axis=0).
-    #                                                             # ignore_index=True: resets the index after concatenation, meaning that the new DataFrame will have a new integer index starting from 0.
-    #     res.to_csv("./output/regression_chebnet_loss_trajectory_{}_{}_{}_{}_wm{}_{}_preset{}_l{}.csv".format(
-    #         opt, shiftop, gtype, feattype, w_multiplier, act_str, int(preset), num_layers))
-    # print("Training completed! Total runtime {:.3f}".format(time.time() - start_time))
+            for i in range(num_nodes):
+                epoch_row_training[f'training_loss{i+1}'] = training_loss[epoch][i]
+                epoch_row_testing[f'testing_loss{i+1}'] = testing_loss[epoch][i]
+            
+            training_data.append(epoch_row_training)
+            testing_data.append(epoch_row_testing)
+        
+        total_running_time = time.time() - start_time
 
+        training_results = pd.DataFrame(training_data)
+        testing_results = pd.DataFrame(testing_data)
 
+        training_results.set_index('epoch', inplace=True)  
+        testing_results.set_index('epoch', inplace=True)
 
+    file_path_training = "./simulation_results/training_loss_{}.csv".format(architecture)
+    file_path_testing = "./simulation_results/testing_loss_{}.csv".format(architecture)
+    if os.path.exists(file_path_training) & os.path.exists(file_path_testing):
+        os.remove(file_path_training)
+        os.remove(file_path_testing)
+            
+    training_results.to_csv(file_path_training)
+    testing_results.to_csv(file_path_testing)
 
+    
+    print("Training completed! Total runtime: {:.3f}".format(total_running_time))
+    print("Average training time per epoch for each node: {:.3f}".format((total_running_time)/(num_epoch*num_nodes)))
+    
+    # Plot the training and testing results
+    plot_training_testing_results(file_path_training, file_path_testing, ci_percent=.75)
 
 
 
